@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Mono - English</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/@telegram-apps/telegram-ui@1/dist/styles.css" />
+  <style>
+    body { margin: 0; padding: 0; background: #ffffff; color: #000; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+    .container { padding: 12px; }
+    .flashcard { background: #f5f5f9; border-radius: 12px; padding: 20px; margin: 16px 0; text-align: center; }
+    .word { font-size: 28px; font-weight: 700; margin-bottom: 16px; }
+    .answer-section { display: none; margin-top: 16px; padding-top: 16px; border-top: 1px solid #e0e0e0; }
+    .answer-section.show { display: block; }
+    .stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin: 16px 0; }
+    .stat-card { background: #f9f9fb; padding: 12px; border-radius: 10px; text-align: center; }
+    .stat-value { font-size: 20px; font-weight: 700; }
+    .stat-label { font-size: 12px; color: #888; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+      <h2 style="font-weight: 700; font-size: 20px;">📚 Mono</h2>
+      <div id="userInfo" style="font-size: 14px; color: #666;"></div>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat-card"><div class="stat-value" id="totalCards">0</div><div class="stat-label">Слов</div></div>
+      <div class="stat-card"><div class="stat-value" id="score">0</div><div class="stat-label">Верно</div></div>
+      <div class="stat-card"><div class="stat-value" id="streak">0</div><div class="stat-label">Серия</div></div>
+      <div class="stat-card"><div class="stat-value" id="level">1</div><div class="stat-label">Уровень</div></div>
+    </div>
+
+    <div class="flashcard">
+      <div class="word" id="currentWord">Abandon</div>
+      <div id="answerSection" class="answer-section">
+        <div><strong>Перевод:</strong> <span id="definition">Оставить</span></div>
+        <div style="margin-top: 8px;"><em>"<span id="example">He abandoned his car.</span>"</em></div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 20px;">
+        <button id="showAnswerBtn" class="tg-theme-button tg-widget-button" style="height: 48px;">Показать ответ</button>
+        <button id="correctBtn" class="tg-theme-button tg-widget-button" style="height: 48px; background: #009688; display: none;">✅ Правильно</button>
+        <button id="incorrectBtn" class="tg-theme-button tg-widget-button" style="height: 48px; background: #e91e63; display: none;">❌ Не знаю</button>
+      </div>
+    </div>
+
+    <div style="margin-top: 16px;">
+      <div style="display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 6px;">
+        <span>Прогресс</span>
+        <span id="progressPercent">0%</span>
+      </div>
+      <div style="height: 6px; background: #e0e0e0; border-radius: 3px; overflow: hidden;">
+        <div id="progressFill" style="height: 100%; background: #0088cc; width: 0%; transition: width 0.3s;"></div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    // Получаем данные пользователя из Telegram
+    let userId = null;
+    try {
+      const initData = window.Telegram?.WebApp?.initDataUnsafe;
+      if (initData?.user) {
+        userId = initData.user.id;
+        document.getElementById('userInfo').textContent = `👋 ${initData.user.first_name}`;
+      }
+    } catch (e) {
+      console.warn('Not in Telegram');
+    }
+
+    const vocabulary = [
+      { word: "Abandon", definition: "Оставить, бросить", example: "He abandoned his car in the snow." },
+      { word: "Benefit", definition: "Выгода, польза", example: "Regular exercise has many health benefits." },
+      { word: "Consequence", definition: "Последствие", example: "The consequence of his actions was severe." },
+      { word: "Diligent", definition: "Старательный", example: "She is a diligent student." },
+      { word: "Efficient", definition: "Эффективный", example: "The new system is more efficient." }
+    ];
+
+    // Состояние
+    let currentCardIndex = 0;
+    let score = 0, streak = 0, totalCards = 0;
+
+    // DOM
+    const els = {
+      word: document.getElementById('currentWord'),
+      def: document.getElementById('definition'),
+      ex: document.getElementById('example'),
+      ans: document.getElementById('answerSection'),
+      showBtn: document.getElementById('showAnswerBtn'),
+      correctBtn: document.getElementById('correctBtn'),
+      incorrectBtn: document.getElementById('incorrectBtn'),
+      total: document.getElementById('totalCards'),
+      score: document.getElementById('score'),
+      streak: document.getElementById('streak'),
+      level: document.getElementById('level'),
+      percent: document.getElementById('progressPercent'),
+      fill: document.getElementById('progressFill')
+    };
+
+    // Обновить карточку
+    function updateCard() {
+      const card = vocabulary[currentCardIndex];
+      els.word.textContent = card.word;
+      els.def.textContent = card.definition;
+      els.ex.textContent = card.example;
+    }
+
+    // Обновить статистику
+    function updateStats() {
+      els.total.textContent = totalCards;
+      els.score.textContent = score;
+      els.streak.textContent = streak;
+      els.level.textContent = Math.floor(totalCards / 5) + 1;
+      const p = totalCards ? Math.round((score / totalCards) * 100) : 0;
+      els.percent.textContent = `${p}%`;
+      els.fill.style.width = `${p}%`;
+    }
+
+    // Сохранить прогресс на сервер
+    async function saveProgress(isCorrect) {
+      if (!userId) return;
+      try {
+        await fetch('/api/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId,
+            wordIndex: currentCardIndex,
+            correct: isCorrect
+          })
+        });
+      } catch (e) {
+        console.error('Save failed', e);
+      }
+    }
+
+    // Загрузить прогресс с сервера
+    async function loadProgress() {
+      if (!userId) return;
+      try {
+        const res = await fetch(`/api/load?userId=${userId}`);
+        const data = await res.json();
+        if (data) {
+          score = data.score || 0;
+          streak = data.streak || 0;
+          totalCards = data.totalCards || 0;
+          currentCardIndex = (data.lastWordIndex + 1) % vocabulary.length;
+          updateStats();
+        }
+      } catch (e) {
+        console.error('Load failed', e);
+      }
+    }
+
+    // Обработка ответа
+    async function handleAnswer(isCorrect) {
+      totalCards++;
+      if (isCorrect) { score++; streak++; } else { streak = 0; }
+      updateStats();
+      await saveProgress(isCorrect);
+      setTimeout(() => {
+        currentCardIndex = (currentCardIndex + 1) % vocabulary.length;
+        els.ans.classList.remove('show');
+        els.showBtn.style.display = 'block';
+        els.correctBtn.style.display = 'none';
+        els.incorrectBtn.style.display = 'none';
+        updateCard();
+      }, 600);
+    }
+
+    // События
+    els.showBtn.onclick = () => {
+      els.ans.classList.add('show');
+      els.showBtn.style.display = 'none';
+      els.correctBtn.style.display = 'block';
+      els.incorrectBtn.style.display = 'block';
+    };
+    els.correctBtn.onclick = () => handleAnswer(true);
+    els.incorrectBtn.onclick = () => handleAnswer(false);
+
+    // Инициализация
+    updateCard();
+    loadProgress();
+
+    // Telegram setup
+    if (window.Telegram?.WebApp) {
+      Telegram.WebApp.ready();
+      Telegram.WebApp.expand();
+    }
+  </script>
+</body>
+</html>
